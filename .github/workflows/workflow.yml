@@ -1,0 +1,74 @@
+name: Publish Docker images
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+
+env:
+    OWNER: legleux
+    PROJECT: rippled
+    IMAGE_NAME: ghcr.io/${{ github.repository_owner }}
+    TAG: latest
+
+# TODO: have a workflow kick off another workflow if the "check if needs to be built workflow succeeds"
+
+jobs:
+  check:
+    name: Check if images need to be built
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.BTB }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: "Get latest SHAs"
+        id: sha
+        run: |
+          TO_BUILD=$(python check_images.py)
+          echo "Got to build: ${TO_BUILD}"
+          echo "BTB=$TO_BUILD" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: "Building ${{ matrix.version.branch}}"
+    runs-on: ["self-hosted", "enlil"]
+    if: ${{ needs.check.outputs.sha }} != "[]"
+    needs: check
+    permissions: write-all
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON( needs.check.outputs.sha ) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Checkout target repo
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ env.OWNER }}/${{ env.PROJECT }}
+          ref: ${{ matrix.version.branch}}
+          path: ${{ env.PROJECT }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          TAGGED_IMAGE="${IMAGE_NAME}/${{ env.PROJECT }}:${{ matrix.version.sha}}"
+          echo "Building image ${TAGGED_IMAGE}"
+
+          docker build -t ${TAGGED_IMAGE} --build-arg REPO=${{ env.PROJECT }} -f rippled_docker/Dockerfile .
+
+          docker push ${TAGGED_IMAGE}
+
+          docker tag ${TAGGED_IMAGE} ${IMAGE_NAME}/${{ env.PROJECT }}:${{ matrix.version.branch}}
+          docker push ${IMAGE_NAME}/${{ env.PROJECT }}:${{ matrix.version.branch}}
