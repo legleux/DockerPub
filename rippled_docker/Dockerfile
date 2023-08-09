@@ -23,7 +23,7 @@ RUN cd ${SOURCE_DIR} && mkdir "${BUILD_DIR}"
 
 ENV BUILD_DIR=${BUILD_DIR}
 ENV SOURCE_DIR=${SOURCE_DIR}
-ENV CONFIG=Release
+ENV CONFIG=Debug
 ENV NPROC=30
 
 RUN ./conan_install.sh
